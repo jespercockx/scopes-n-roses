@@ -1,3 +1,2 @@
 include: .
 depend: standard-library
-flags: --erasure --erase-record-parameters

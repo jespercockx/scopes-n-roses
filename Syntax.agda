@@ -15,10 +15,8 @@ data Term  (@0 α : Scope) : Set
 data Branch (@0 α : Scope) : Set
 data Branches (@0 α : Scope) : Set
 
-data _⇒_ : (@0 α β : Scope) → Set where
-  ⇒weaken : α ⊆ β → α ⇒ β
-  ⇒const  : Term β → α ⇒ β
-  ⇒join   : α₁ ⋈ α₂ ≡ α → α₁ ⇒ β → α₂ ⇒ β → α ⇒ β
+@0 _⇒_ : (@0 α β : Scope) → Set
+α ⇒ β = (@0 x : Name) → {{_ : x ∈ α}} → Term β
 
 data Term α where
   var    : (@0 x : Name) → {{x ∈ α}} → Term α
@@ -28,7 +26,7 @@ data Term α where
   type   : ℕ → Term α
   let′   : (@0 x : Name) (u : Term α) (v : Term (x ◃ α)) → Term α
   atom   : (@0 c : Name) → {{_ : c ∈ atoms}} → Term α
-  case   : (@0 x : Name) {{x∈α : x ∈ α}} (bs : Branches (diff x∈α)) → Term α
+  case   : (@0 x : Name) {{x∈α : x ∈ α}} (bs : Branches (x∈α ᶜ)) → Term α
 
 data Branch α where
   branch : (@0 c : Name) → {{_ : c ∈ atoms}} → Term α → Branch α
@@ -37,17 +35,21 @@ data Branches α where
   []  : Branches α
   _∷_ : Branch α → Branches α → Branches α
 
+⇒weaken : α ⊆ β → α ⇒ β
+⇒weaken f x = var x {{coerce f it}}
+
+⇒const : Term β → α ⇒ β
+⇒const u _ = u
+
+⇒join   : α₁ ⋈ α₂ ≡ α → α₁ ⇒ β → α₂ ⇒ β → α ⇒ β
+⇒join p f g x = ⋈-case p it (λ p → f _ {{p}}) (λ q → g _ {{q}})
+
+
 lookupEnv : α ⇒ β → (@0 x : Name) → {{x ∈ α}} → Term β
-lookupEnv (⇒weaken w) x ⦃ q ⦄ = var x {{coerce w q}}
-lookupEnv (⇒const u) x = u
-lookupEnv (⇒join p f g) x ⦃ q ⦄ = ⋈-case p q (λ r → lookupEnv f x {{r}}) (λ r → lookupEnv g x {{r}})
+lookupEnv f x = f x
 
 coerceEnv : α ⊆ β → β ⇒ γ → α ⇒ γ
-coerceEnv p (⇒weaken q) = ⇒weaken (⊆-trans p q)
-coerceEnv p (⇒const x) = ⇒const x
-coerceEnv p (⇒join q f g) = 
-  let < p₁ , p₂ , r > = ⊆-⋈-split p q
-  in  ⇒join r (coerceEnv p₁ f) (coerceEnv p₂ g)
+coerceEnv p f x = f x {{coerce p it}}
 
 lookupBranch : Branches α → (@0 c : Name) {{p : c ∈ atoms}} → Maybe (Term α)
 lookupBranch [] c = nothing
@@ -74,9 +76,7 @@ weakenBranch p (branch c v) = branch c (weaken p v)
 weakenBranches p []       = []
 weakenBranches p (b ∷ bs) = weakenBranch p b ∷ weakenBranches p bs
 
-weakenEnv p (⇒weaken q) = ⇒weaken (⊆-trans q p)
-weakenEnv p (⇒const x) = ⇒const (weaken p x)
-weakenEnv p (⇒join q f g) = ⇒join q (weakenEnv p f) (weakenEnv p g) 
+weakenEnv p f x = weaken p (f x)
 
 liftEnv : β ⇒ γ → (α <> β) ⇒ (α <> γ)
 liftEnv f = ⇒join ⋈-refl (⇒weaken (left ⊆-refl)) (weakenEnv (right ⊆-refl) f)
@@ -87,7 +87,6 @@ raiseEnv f = ⇒join ⋈-refl f (⇒weaken ⊆-refl)
 substTerm  : α ⇒ β → Term α → Term β
 substBranch : α ⇒ β → Branch α → Branch β
 substBranches : α ⇒ β → Branches α → Branches β
-substEnv : α ⇒ β → γ ⇒ α → γ ⇒ β
 
 substTerm f (var x)           = lookupEnv f x
 substTerm f (lam x v)         = lam x (substTerm (liftEnv f) v)
@@ -104,10 +103,6 @@ substBranch f (branch c u) = branch c (substTerm f u)
 
 substBranches f [] = []
 substBranches f (b ∷ bs) = substBranch f b ∷ substBranches f bs
-
-substEnv f (⇒weaken x) = coerceEnv x f
-substEnv f (⇒const x) = ⇒const (substTerm f x)
-substEnv f (⇒join x g₁ g₂) = ⇒join x (substEnv f g₁) (substEnv f g₂)
 
 substTop : Term α → Term (x ◃ α) → Term α
 substTop {α = α} u = substTerm (⇒join ⋈-refl (⇒const u) (⇒weaken ⊆-refl))
@@ -131,3 +126,4 @@ reduce zero u = nothing
 reduce (suc n) u = case (step u) of λ where
   (just u') → reduce n u'
   nothing   → just u
+
